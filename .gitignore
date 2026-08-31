@@ -38,6 +38,9 @@ yarn-error.log*
 .data/
 .tmp-verify/
 
+# supabase CLI cache
+supabase/.temp/
+
 # vercel
 .vercel
 

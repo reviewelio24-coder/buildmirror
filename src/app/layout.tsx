@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { Metadata } from "next";
 import { IBM_Plex_Mono, Noto_Sans_KR } from "next/font/google";
 import "./globals.css";
@@ -20,7 +21,11 @@ export const metadata: Metadata = {
     "AI가 만든 코드를 이해하고, 검증하고, 책임질 수 있게 만드는 AI Code Ownership Platform",
 };
 
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: ReactNode;
+}>) {
   return (
     <html
       lang="ko"

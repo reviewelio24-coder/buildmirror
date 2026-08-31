@@ -54,3 +54,17 @@ export const COMMIT_SHAS = {
 
 export const ENGINE_VERSION = "engine-0.1.0";
 export const CONSTITUTION_VERSION = "constitution-v1";
+
+export const MOCK_GITHUB_INSTALLATION_IDS = {
+  user: "61111111-1111-4111-8111-111111111111",
+  org: "62222222-2222-4222-8222-222222222222",
+} as const;
+
+export const MOCK_GITHUB_REPOSITORY_IDS = {
+  notes: 800001,
+  dashboard: 800002,
+  archived: 800003,
+  disabled: 800004,
+  privateApi: 800005,
+  orgService: 800006,
+} as const;

@@ -1,6 +1,7 @@
 import type {
   AnalysisJob,
   AnalysisSnapshot,
+  GitHubInstallation,
   LearningTask,
   Notification,
   Project,
@@ -36,6 +37,16 @@ export type RepositoryRow = {
   default_branch: string;
   head_sha: string | null;
   connection_status: Repository["connectionStatus"];
+  github_installation_id: string | null;
+  github_repository_id: number | null;
+  html_url: string | null;
+  is_private: boolean | null;
+  full_name: string | null;
+  is_archived: boolean | null;
+  is_disabled: boolean | null;
+  github_permissions: Record<string, string> | null;
+  github_pushed_at: string | null;
+  last_synced_at: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -66,6 +77,11 @@ export type JobRow = {
   status: AnalysisJob["status"];
   error_code: string | null;
   error_message: string | null;
+  repository_id: string | null;
+  trigger_type: AnalysisJob["triggerType"] | null;
+  trigger_ref: string | null;
+  trigger_sha: string | null;
+  github_delivery_id: string | null;
   created_at: string;
   started_at: string | null;
   completed_at: string | null;
@@ -138,6 +154,16 @@ export function mapRepository(row: RepositoryRow): Repository {
     defaultBranch: row.default_branch,
     headSha: row.head_sha,
     connectionStatus: row.connection_status,
+    githubInstallationId: row.github_installation_id ?? null,
+    githubRepositoryId: row.github_repository_id ?? null,
+    htmlUrl: row.html_url ?? null,
+    isPrivate: row.is_private ?? null,
+    fullName: row.full_name ?? null,
+    isArchived: row.is_archived ?? false,
+    isDisabled: row.is_disabled ?? false,
+    permissions: row.github_permissions ?? {},
+    githubPushedAt: row.github_pushed_at ?? null,
+    lastSyncedAt: row.last_synced_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -172,6 +198,11 @@ export function mapJob(row: JobRow): AnalysisJob {
     status: row.status,
     errorCode: row.error_code,
     errorMessage: row.error_message,
+    repositoryId: row.repository_id ?? null,
+    triggerType: row.trigger_type ?? "manual",
+    triggerRef: row.trigger_ref ?? null,
+    triggerSha: row.trigger_sha ?? null,
+    githubDeliveryId: row.github_delivery_id ?? null,
     createdAt: row.created_at,
     startedAt: row.started_at,
     completedAt: row.completed_at,
@@ -224,5 +255,45 @@ export function mapNotification(row: NotificationRow): Notification {
     title: row.title,
     body: row.body,
     createdAt: row.created_at,
+  };
+}
+
+export type GitHubInstallationRow = {
+  id: string;
+  user_id: string;
+  github_external_installation_id: number;
+  account_login: string;
+  account_type: GitHubInstallation["accountType"];
+  account_id: number;
+  repository_selection: GitHubInstallation["repositorySelection"];
+  permissions: Record<string, string> | null;
+  events: string[] | null;
+  installed_at: string;
+  suspended_at: string | null;
+  deleted_at: string | null;
+  last_synced_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export function mapGitHubInstallation(
+  row: GitHubInstallationRow,
+): GitHubInstallation {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    githubExternalInstallationId: row.github_external_installation_id,
+    accountLogin: row.account_login,
+    accountType: row.account_type,
+    accountId: row.account_id,
+    repositorySelection: row.repository_selection,
+    permissions: row.permissions ?? {},
+    events: row.events ?? [],
+    installedAt: row.installed_at,
+    suspendedAt: row.suspended_at,
+    deletedAt: row.deleted_at ?? null,
+    lastSyncedAt: row.last_synced_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }

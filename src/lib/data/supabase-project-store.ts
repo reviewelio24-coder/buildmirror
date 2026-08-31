@@ -1,5 +1,9 @@
 import { AppError } from "@/lib/errors";
 import { deriveProjectStatus } from "@/lib/projects/status";
+import {
+  prepareViewStateInput,
+  viewStateUnchanged,
+} from "@/lib/projects/view-state";
 import type { createServerSupabaseClient } from "@/lib/supabase/server";
 import type {
   AnalysisJob,
@@ -9,6 +13,7 @@ import type {
   ProjectDashboard,
   ProjectSummary,
   ProjectViewState,
+  Repository,
 } from "@/lib/types/domain";
 import type {
   FreshnessUpdate,
@@ -78,11 +83,61 @@ export class SupabaseProjectStore implements ProjectStore {
     }
 
     const projects = ((data ?? []) as ProjectRow[]).map(mapProject);
+    if (projects.length === 0) {
+      return [];
+    }
+
+    const repositoryIds = [
+      ...new Set(
+        projects
+          .map((project) => project.activeRepositoryId)
+          .filter((id): id is string => Boolean(id)),
+      ),
+    ];
+    const projectIds = projects.map((project) => project.id);
+
+    const repositoryById = new Map<string, ReturnType<typeof mapRepository>>();
+    if (repositoryIds.length > 0) {
+      const { data: repositoryRows, error: repositoryError } = await this.supabase
+        .from("repositories")
+        .select("*")
+        .eq("user_id", userId)
+        .in("id", repositoryIds);
+      if (repositoryError) {
+        fromSupabase(repositoryError, "저장소 목록을 불러오지 못했습니다.");
+      }
+      for (const row of (repositoryRows ?? []) as RepositoryRow[]) {
+        repositoryById.set(row.id, mapRepository(row));
+      }
+    }
+
+    const activeJobByProjectId = new Map<string, ReturnType<typeof mapJob>>();
+    const { data: jobRows, error: jobError } = await this.supabase
+      .from("analysis_jobs")
+      .select("*")
+      .in("project_id", projectIds)
+      .in("status", ["queued", "running"])
+      .order("created_at", { ascending: false });
+    if (jobError) {
+      fromSupabase(jobError, "분석 작업을 불러오지 못했습니다.");
+    }
+    for (const row of (jobRows ?? []) as JobRow[]) {
+      if (!activeJobByProjectId.has(row.project_id)) {
+        activeJobByProjectId.set(row.project_id, mapJob(row));
+      }
+    }
+
     const keyword = query.query?.trim().toLowerCase() ?? "";
     const summaries: ProjectSummary[] = [];
-
     for (const project of projects) {
-      const summary = await this.toSummary(project);
+      const repository = project.activeRepositoryId
+        ? repositoryById.get(project.activeRepositoryId) ?? null
+        : null;
+      const summary: ProjectSummary = {
+        project,
+        repository,
+        activeJob: activeJobByProjectId.get(project.id) ?? null,
+      };
       if (keyword) {
         const haystack = [
           project.name,
@@ -147,6 +202,7 @@ export class SupabaseProjectStore implements ProjectStore {
     const requested = snapshotId
       ? snapshots.find((item) => item.id === snapshotId) ?? null
       : null;
+    const invalidSnapshotRequested = Boolean(snapshotId) && !requested;
     const displayedSnapshot = requested ?? lastSuccessfulSnapshot;
 
     let scores = null;
@@ -203,6 +259,7 @@ export class SupabaseProjectStore implements ProjectStore {
         mapNotification,
       ),
       viewState: await this.getViewState(userId, projectId),
+      invalidSnapshotRequested,
     };
   }
 
@@ -332,14 +389,30 @@ export class SupabaseProjectStore implements ProjectStore {
     input: ViewStateInput,
   ): Promise<ProjectViewState> {
     await this.getProject(userId, projectId);
+    const { data: snapshotRows, error: snapshotError } = await this.supabase
+      .from("analysis_snapshots")
+      .select("id")
+      .eq("project_id", projectId);
+    if (snapshotError) {
+      fromSupabase(snapshotError, "분석 스냅샷을 확인하지 못했습니다.");
+    }
+    const sanitized = prepareViewStateInput(
+      projectId,
+      input,
+      ((snapshotRows ?? []) as { id: string }[]).map((row) => row.id),
+    );
+    const current = await this.getViewState(userId, projectId);
+    if (current && viewStateUnchanged(current, sanitized)) {
+      return current;
+    }
     const { data, error } = await this.supabase
       .from("project_view_state")
       .upsert({
         user_id: userId,
         project_id: projectId,
-        route: input.route,
-        snapshot_id: input.snapshotId,
-        filters: input.filters,
+        route: sanitized.route,
+        snapshot_id: sanitized.snapshotId,
+        filters: sanitized.filters,
         updated_at: new Date().toISOString(),
       })
       .select("*")
@@ -372,6 +445,18 @@ export class SupabaseProjectStore implements ProjectStore {
     input: FreshnessUpdate,
   ): Promise<Project> {
     const project = await this.getProject(userId, projectId);
+    const repository = project.activeRepositoryId
+      ? await this.getRepository(userId, project.activeRepositoryId)
+      : null;
+    const repositoryUnchanged =
+      !input.repositoryHeadSha || repository?.headSha === input.repositoryHeadSha;
+    if (
+      project.latestKnownCommitSha === input.latestKnownCommitSha &&
+      project.status === input.status &&
+      repositoryUnchanged
+    ) {
+      return project;
+    }
     const { data, error } = await this.supabase
       .from("projects")
       .update({
@@ -418,6 +503,8 @@ export class SupabaseProjectStore implements ProjectStore {
         error_code: "MOCK_WORKER",
         error_message:
           "이 작업은 mock입니다. 실제 분석 워커는 연결되어 있지 않습니다.",
+        trigger_type: "mock",
+        repository_id: project.activeRepositoryId,
         started_at: now,
       })
       .select("*")
@@ -441,6 +528,45 @@ export class SupabaseProjectStore implements ProjectStore {
     return mapJob(data as JobRow);
   }
 
+  async linkPrimaryRepository(
+    userId: string,
+    projectId: string,
+    repository: Repository,
+  ): Promise<Project> {
+    await this.getProject(userId, projectId);
+    if (repository.userId !== userId) {
+      throw new AppError({
+        userMessage: "다른 계정의 저장소는 연결할 수 없습니다.",
+        developerCause: "repository user does not match current user",
+        code: "GITHUB_REPOSITORY_USER_MISMATCH",
+        status: 403,
+      });
+    }
+    const { error } = await this.supabase.rpc("link_project_repository", {
+      p_project_id: projectId,
+      p_repository_id: repository.id,
+    });
+    if (error) {
+      fromSupabase(error, "저장소를 프로젝트에 연결하지 못했습니다.");
+    }
+    return this.getProject(userId, projectId);
+  }
+
+  async unlinkPrimaryRepository(
+    userId: string,
+    projectId: string,
+  ): Promise<Project> {
+    await this.getProject(userId, projectId);
+    const { error } = await this.supabase.rpc(
+      "unlink_project_primary_repository",
+      { p_project_id: projectId },
+    );
+    if (error) {
+      fromSupabase(error, "저장소 연결을 해제하지 못했습니다.");
+    }
+    return this.getProject(userId, projectId);
+  }
+
   private async getRepository(
     userId: string,
     repositoryId: string,
@@ -455,24 +581,5 @@ export class SupabaseProjectStore implements ProjectStore {
       fromSupabase(error, "저장소 정보를 불러오지 못했습니다.");
     }
     return data ? mapRepository(data as RepositoryRow) : null;
-  }
-
-  private async toSummary(project: Project): Promise<ProjectSummary> {
-    const repository = project.activeRepositoryId
-      ? await this.getRepository(project.userId, project.activeRepositoryId)
-      : null;
-    const { data: jobRows } = await this.supabase
-      .from("analysis_jobs")
-      .select("*")
-      .eq("project_id", project.id)
-      .in("status", ["queued", "running"])
-      .order("created_at", { ascending: false })
-      .limit(1);
-    const activeJob = jobRows?.[0] ? mapJob(jobRows[0] as JobRow) : null;
-    return {
-      project,
-      repository,
-      activeJob,
-    };
   }
 }

@@ -35,6 +35,7 @@ export const ANALYSIS_JOB_STAGES = [
 export type AnalysisJobStage = (typeof ANALYSIS_JOB_STAGES)[number];
 
 export const ANALYSIS_JOB_STATUSES = [
+  "pending",
   "queued",
   "running",
   "completed",
@@ -49,6 +50,7 @@ export type RepositoryProviderName = (typeof REPOSITORY_PROVIDERS)[number];
 export const REPOSITORY_CONNECTION_STATUSES = [
   "connected",
   "disconnected",
+  "inaccessible",
 ] as const;
 export type RepositoryConnectionStatus =
   (typeof REPOSITORY_CONNECTION_STATUSES)[number];
@@ -103,6 +105,26 @@ export type Project = {
   updatedAt: string;
 };
 
+export type GitHubAccountType = "User" | "Organization";
+
+export type GitHubInstallation = {
+  id: string;
+  userId: string;
+  githubExternalInstallationId: number;
+  accountLogin: string;
+  accountType: GitHubAccountType;
+  accountId: number;
+  repositorySelection: "all" | "selected";
+  permissions: Record<string, string>;
+  events: string[];
+  installedAt: string;
+  suspendedAt: string | null;
+  deletedAt: string | null;
+  lastSyncedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Repository = {
   id: string;
   userId: string;
@@ -113,6 +135,16 @@ export type Repository = {
   defaultBranch: string;
   headSha: string | null;
   connectionStatus: RepositoryConnectionStatus;
+  githubInstallationId: string | null;
+  githubRepositoryId: number | null;
+  htmlUrl: string | null;
+  isPrivate: boolean | null;
+  fullName: string | null;
+  isArchived: boolean;
+  isDisabled: boolean;
+  permissions: Record<string, string>;
+  githubPushedAt: string | null;
+  lastSyncedAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -149,16 +181,23 @@ export type AnalysisSnapshot = {
   createdAt: string;
 };
 
+export type AnalysisJobTriggerType = "manual" | "github_push" | "mock";
+
 export type AnalysisJob = {
   id: string;
   projectId: string;
   snapshotId: string | null;
+  repositoryId: string | null;
   type: AnalysisJobType;
   stage: AnalysisJobStage;
   progress: number;
   status: AnalysisJobStatus;
   errorCode: string | null;
   errorMessage: string | null;
+  triggerType: AnalysisJobTriggerType;
+  triggerRef: string | null;
+  triggerSha: string | null;
+  githubDeliveryId: string | null;
   createdAt: string;
   startedAt: string | null;
   completedAt: string | null;
@@ -219,6 +258,27 @@ export type ProjectDashboard = {
   latestFailedJob: AnalysisJob | null;
   notifications: Notification[];
   viewState: ProjectViewState | null;
+  invalidSnapshotRequested: boolean;
+};
+
+export const WEBHOOK_DELIVERY_STATUSES = [
+  "received",
+  "processed",
+  "ignored",
+  "failed",
+] as const;
+export type WebhookDeliveryStatus = (typeof WEBHOOK_DELIVERY_STATUSES)[number];
+
+export type GitHubWebhookDelivery = {
+  githubDeliveryId: string;
+  githubEvent: string;
+  action: string | null;
+  githubExternalInstallationId: number | null;
+  githubRepositoryId: number | null;
+  processingStatus: WebhookDeliveryStatus;
+  errorCode: string | null;
+  receivedAt: string;
+  processedAt: string | null;
 };
 
 export type CreateProjectInput = {

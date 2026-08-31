@@ -3,7 +3,10 @@ import type { RepositoryMetadata, RepositoryProvider } from "@/lib/adapters/repo
 
 /**
  * GitHub App 연동 지점.
- * 저장소 목록, 메타데이터, 기본 브랜치, head SHA, 설치 상태 확인을 여기서 구현한다.
+ * JWT·installation token·API client는 `src/lib/github/`에 있습니다.
+ * 설치 callback과 저장소 연결 UI는 `src/lib/github/`과 프로젝트 설정에서 처리합니다.
+ * webhook은 `POST /api/github/webhooks`에서 처리합니다.
+ * 이 adapter의 clone·head SHA 조회는 아직 구현하지 않습니다.
  */
 export class GitHubRepositoryProvider implements RepositoryProvider {
   async listRepositories(): Promise<RepositoryMetadata[]> {

@@ -24,6 +24,12 @@ describe("deriveProjectStatus", () => {
     ).toBe("disconnected");
   });
 
+  it("treats inaccessible repositories as disconnected", () => {
+    expect(
+      deriveProjectStatus({ ...base, connectionStatus: "inaccessible" }),
+    ).toBe("disconnected");
+  });
+
   it("keeps analyzing while a job is active even if SHAs differ", () => {
     expect(
       deriveProjectStatus({

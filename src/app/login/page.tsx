@@ -1,5 +1,6 @@
 import { LoginForm } from "@/components/auth/login-form";
 import { getEnv } from "@/lib/env";
+import { sanitizeNextPath } from "@/lib/navigation/paths";
 
 export default async function LoginPage({
   searchParams,
@@ -7,8 +8,7 @@ export default async function LoginPage({
   searchParams: Promise<{ next?: string }>;
 }) {
   const params = await searchParams;
-  const nextPath =
-    params.next && params.next.startsWith("/") ? params.next : "/projects";
+  const nextPath = sanitizeNextPath(params.next);
   const mode = getEnv().APP_DATA_MODE;
 
   return (

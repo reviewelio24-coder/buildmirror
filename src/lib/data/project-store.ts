@@ -7,6 +7,7 @@ import type {
   ProjectStatus,
   ProjectSummary,
   ProjectViewState,
+  Repository,
 } from "@/lib/types/domain";
 
 export type ListProjectsQuery = {
@@ -67,4 +68,10 @@ export interface ProjectStore {
     projectId: string,
     type: AnalysisJobType,
   ): Promise<AnalysisJob>;
+  linkPrimaryRepository(
+    userId: string,
+    projectId: string,
+    repository: Repository,
+  ): Promise<Project>;
+  unlinkPrimaryRepository(userId: string, projectId: string): Promise<Project>;
 }

@@ -1,6 +1,12 @@
+import { GitHubRepositoryLinkForm } from "@/components/projects/github-repository-link-form";
 import { ProjectSettingsForms } from "@/components/projects/project-settings-forms";
 import { requireUser } from "@/lib/auth/session";
+import { getGitHubStore } from "@/lib/data/get-github-store";
 import { getProjectStore } from "@/lib/data/get-project-store";
+import { toUserErrorMessage } from "@/lib/errors";
+import { getInstallationRepositorySource } from "@/lib/github/get-repository-source";
+import { syncInstallationRepositories } from "@/lib/github/sync-repositories";
+import type { Repository } from "@/lib/types/domain";
 
 export const dynamic = "force-dynamic";
 
@@ -12,13 +18,35 @@ export default async function ProjectSettingsPage({
   const user = await requireUser();
   const { projectId } = await params;
   const store = await getProjectStore();
+  const githubStore = await getGitHubStore();
   const dashboard = await store.getDashboard(user.id, projectId);
+  const installations = await githubStore.listInstallations(user.id);
+  const source = getInstallationRepositorySource(githubStore);
+  const repositories: Repository[] = [];
+  let syncError: string | null = null;
 
-  await store.saveViewState(user.id, projectId, {
-    route: `/projects/${projectId}/settings`,
-    snapshotId: dashboard.viewState?.snapshotId ?? dashboard.displayedSnapshot?.id ?? null,
-    filters: {},
-  });
+  for (const installation of installations) {
+    if (installation.suspendedAt) {
+      continue;
+    }
+    try {
+      const synced = await syncInstallationRepositories({
+        userId: user.id,
+        installationId: installation.id,
+        store: githubStore,
+        source,
+      });
+      repositories.push(...synced);
+    } catch (error) {
+      syncError = toUserErrorMessage(error);
+      repositories.push(
+        ...(await githubStore.listInstallationRepositories(
+          user.id,
+          installation.id,
+        )),
+      );
+    }
+  }
 
   return (
     <div className="space-y-4">
@@ -31,6 +59,13 @@ export default async function ProjectSettingsPage({
       <ProjectSettingsForms
         project={dashboard.project}
         repository={dashboard.repository}
+      />
+      <GitHubRepositoryLinkForm
+        project={dashboard.project}
+        activeRepository={dashboard.repository}
+        installations={installations}
+        repositories={repositories}
+        syncError={syncError}
       />
     </div>
   );

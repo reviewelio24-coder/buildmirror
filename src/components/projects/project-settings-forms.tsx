@@ -82,21 +82,6 @@ export function ProjectSettingsForms({
         </dl>
       </section>
 
-      <section className="rounded-lg border border-dashed border-border bg-surface p-5">
-        <h2 className="text-base font-semibold">저장소 연결 변경</h2>
-        <p className="mt-2 text-sm text-muted">
-          GitHub App 연동 후 이 영역에서 저장소를 변경할 수 있습니다. 지금은
-          구현되어 있지 않습니다.
-        </p>
-        <button
-          type="button"
-          disabled
-          className="mt-3 rounded border border-border px-4 py-2 text-sm opacity-50"
-        >
-          저장소 변경 (미구현)
-        </button>
-      </section>
-
       <section className="rounded-lg border border-border bg-surface p-5">
         <h2 className="text-base font-semibold">보관</h2>
         <p className="mt-2 text-sm text-muted">

@@ -1,8 +1,11 @@
-import type { ProjectStatus } from "@/lib/types/domain";
+import type {
+  ProjectStatus,
+  RepositoryConnectionStatus,
+} from "@/lib/types/domain";
 
 export type StatusDerivationInput = {
   archivedAt: string | null;
-  connectionStatus: "connected" | "disconnected";
+  connectionStatus: RepositoryConnectionStatus;
   hasActiveJob: boolean;
   latestJobFailed: boolean;
   freshnessCheckFailed: boolean;
@@ -16,7 +19,7 @@ export function deriveProjectStatus(
   if (input.archivedAt) {
     return "archived";
   }
-  if (input.connectionStatus === "disconnected") {
+  if (input.connectionStatus !== "connected") {
     return "disconnected";
   }
   if (input.hasActiveJob) {
@@ -40,7 +43,12 @@ export function deriveProjectStatus(
 
 export function shouldCheckFreshness(input: {
   archivedAt: string | null;
-  connectionStatus: "connected" | "disconnected";
+  connectionStatus: RepositoryConnectionStatus;
+  provider?: string;
 }): boolean {
-  return !input.archivedAt && input.connectionStatus === "connected";
+  return (
+    !input.archivedAt &&
+    input.connectionStatus === "connected" &&
+    input.provider !== "github"
+  );
 }

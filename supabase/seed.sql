@@ -1,19 +1,24 @@
 -- Development seed for A/B/C(+ analyzing, archived) demo projects.
 -- Do not use in production.
 --
--- After creating a user in Supabase Auth, run:
+-- After creating a user in Supabase Auth, run this in the SQL editor as
+-- a database owner (not from the app client):
 --   select public.seed_buildmirror_demo('<auth-user-uuid>');
--- The function only runs for the current user or a service_role caller.
+-- API roles (anon, authenticated, service_role) must not receive EXECUTE.
 
 create or replace function public.seed_buildmirror_demo(p_user_id uuid)
 returns void
 language plpgsql
-security definer
-set search_path = public
+security invoker
+set search_path = ''
 as $$
 declare
-  v_uid uuid := auth.uid();
+  v_role text := coalesce((select auth.role()), '');
+  v_uid uuid := (select auth.uid());
 begin
+  if v_role in ('authenticated', 'anon', 'service_role') then
+    raise exception 'seed_buildmirror_demo is restricted to the SQL editor owner role';
+  end if;
   if v_uid is not null and v_uid is distinct from p_user_id then
     raise exception 'seed_buildmirror_demo can only seed the current user';
   end if;
@@ -183,4 +188,4 @@ begin
 end;
 $$;
 
-grant execute on function public.seed_buildmirror_demo(uuid) to authenticated;
+revoke all on function public.seed_buildmirror_demo(uuid) from public, anon, authenticated, service_role;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { MockRepositoryProvider } from "@/lib/adapters/mock-repository-provider";
 import { createMemoryProjectStore } from "@/lib/data/mock-project-store";
-import { COMMIT_SHAS, DEMO_USER_ID, PROJECT_IDS } from "@/lib/ids";
+import { COMMIT_SHAS, DEMO_USER_ID, PROJECT_IDS, SNAPSHOT_IDS } from "@/lib/ids";
 import { createDemoStoreData } from "@/lib/mock/seed";
 import { snapshotIdentityKey } from "@/lib/projects/snapshot";
 
@@ -45,19 +45,19 @@ describe("mock A/B/C isolation", () => {
     const store = createMemoryProjectStore(createDemoStoreData());
     await store.saveViewState(DEMO_USER_ID, PROJECT_IDS.a, {
       route: `/projects/${PROJECT_IDS.a}/settings`,
-      snapshotId: "snapshot-a",
-      filters: { tab: "a" },
+      snapshotId: SNAPSHOT_IDS.a,
+      filters: { snapshot: SNAPSHOT_IDS.a },
     });
     await store.saveViewState(DEMO_USER_ID, PROJECT_IDS.b, {
       route: `/projects/${PROJECT_IDS.b}`,
-      snapshotId: "snapshot-b",
-      filters: { tab: "b" },
+      snapshotId: SNAPSHOT_IDS.b,
+      filters: { snapshot: SNAPSHOT_IDS.b },
     });
 
     const aState = await store.getViewState(DEMO_USER_ID, PROJECT_IDS.a);
     const bState = await store.getViewState(DEMO_USER_ID, PROJECT_IDS.b);
-    expect(aState?.filters.tab).toBe("a");
-    expect(bState?.filters.tab).toBe("b");
+    expect(aState?.filters.snapshot).toBe(SNAPSHOT_IDS.a);
+    expect(bState?.filters.snapshot).toBe(SNAPSHOT_IDS.b);
     expect(aState?.route).toContain(PROJECT_IDS.a);
     expect(bState?.route).toContain(PROJECT_IDS.b);
   });
@@ -71,5 +71,77 @@ describe("mock A/B/C isolation", () => {
     expect(repoA && (await provider.getHeadSha(repoA))).toBe(COMMIT_SHAS.a);
     expect(repoB && (await provider.getHeadSha(repoB))).toBe(COMMIT_SHAS.bLatest);
     expect(repoC && (await provider.getHeadSha(repoC))).toBe(COMMIT_SHAS.cFailed);
+  });
+});
+
+describe("mock project isolation rules", () => {
+  it("restores each project's view state after A → B → A", async () => {
+    const store = createMemoryProjectStore(createDemoStoreData());
+    await store.saveViewState(DEMO_USER_ID, PROJECT_IDS.a, {
+      route: `/projects/${PROJECT_IDS.a}/settings`,
+      snapshotId: SNAPSHOT_IDS.a,
+      filters: { snapshot: SNAPSHOT_IDS.a },
+    });
+    await store.saveViewState(DEMO_USER_ID, PROJECT_IDS.b, {
+      route: `/projects/${PROJECT_IDS.b}`,
+      snapshotId: SNAPSHOT_IDS.b,
+      filters: {},
+    });
+
+    const restored = await store.getViewState(DEMO_USER_ID, PROJECT_IDS.a);
+    expect(restored?.route).toBe(`/projects/${PROJECT_IDS.a}/settings`);
+    expect(restored?.snapshotId).toBe(SNAPSHOT_IDS.a);
+  });
+
+  it("does not store another project's snapshot on the current project", async () => {
+    const store = createMemoryProjectStore(createDemoStoreData());
+    const saved = await store.saveViewState(DEMO_USER_ID, PROJECT_IDS.a, {
+      route: `/projects/${PROJECT_IDS.a}`,
+      snapshotId: SNAPSHOT_IDS.b,
+      filters: { snapshot: SNAPSHOT_IDS.b, tab: "secret" },
+    });
+    expect(saved.snapshotId).toBeNull();
+    expect(saved.filters).toEqual({});
+    const dashboard = await store.getDashboard(
+      DEMO_USER_ID,
+      PROJECT_IDS.a,
+      SNAPSHOT_IDS.b,
+    );
+    expect(dashboard.invalidSnapshotRequested).toBe(true);
+    expect(dashboard.displayedSnapshot?.id).toBe(SNAPSHOT_IDS.a);
+  });
+
+  it("keeps the last successful snapshot after the latest analysis failed", async () => {
+    const store = createMemoryProjectStore(createDemoStoreData());
+    const dashboard = await store.getDashboard(DEMO_USER_ID, PROJECT_IDS.c);
+    expect(dashboard.project.status).toBe("failed");
+    expect(dashboard.latestFailedJob?.status).toBe("failed");
+    expect(dashboard.lastSuccessfulSnapshot?.id).toBe(SNAPSHOT_IDS.cGood);
+    expect(dashboard.project.lastSuccessfulSnapshotId).toBe(SNAPSHOT_IDS.cGood);
+  });
+
+  it("deletes only the target project's data", async () => {
+    const store = createMemoryProjectStore(createDemoStoreData());
+    await store.deleteProject(DEMO_USER_ID, PROJECT_IDS.a);
+    await expect(
+      store.getProject(DEMO_USER_ID, PROJECT_IDS.a),
+    ).rejects.toMatchObject({ code: "PROJECT_NOT_FOUND" });
+    const remaining = await store.listProjectSummaries(DEMO_USER_ID, {
+      visibility: "all",
+    });
+    expect(remaining.map((item) => item.project.id)).toEqual(
+      expect.arrayContaining([PROJECT_IDS.b, PROJECT_IDS.c, PROJECT_IDS.e]),
+    );
+    expect(remaining.map((item) => item.project.id)).not.toContain(PROJECT_IDS.a);
+    const b = await store.getDashboard(DEMO_USER_ID, PROJECT_IDS.b);
+    expect(b.displayedSnapshot?.id).toBe(SNAPSHOT_IDS.b);
+  });
+
+  it("still returns history for an archived project", async () => {
+    const store = createMemoryProjectStore(createDemoStoreData());
+    const archived = await store.getDashboard(DEMO_USER_ID, PROJECT_IDS.e);
+    expect(archived.project.status).toBe("archived");
+    expect(archived.displayedSnapshot?.id).toBe(SNAPSHOT_IDS.e);
+    expect(archived.scores?.snapshotId).toBe(SNAPSHOT_IDS.e);
   });
 });

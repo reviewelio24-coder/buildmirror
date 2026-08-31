@@ -36,23 +36,27 @@ export default async function ProjectHomePage({
   const snapshotId = query.snapshot ?? viewState?.snapshotId ?? null;
   const dashboard = await loadProjectDashboard(user.id, projectId, snapshotId);
 
-  await store.saveViewState(user.id, projectId, {
-    route: `/projects/${projectId}`,
-    snapshotId: dashboard.displayedSnapshot?.id ?? null,
-    filters: query.snapshot ? { snapshot: query.snapshot } : {},
-  });
-
   const disabledReason = dashboard.project.archivedAt
     ? "보관된 프로젝트는 자동 변경 감지를 하지 않습니다."
-    : dashboard.repository?.connectionStatus === "disconnected"
-      ? "GitHub 연결이 없어 실제 분석을 시작할 수 없습니다. mock 저장소만 등록된 상태입니다."
-      : dashboard.activeJob
-        ? "이미 분석 작업이 진행 중입니다."
-        : null;
+    : dashboard.repository?.isDisabled
+      ? "비활성화된 저장소는 분석을 시작할 수 없습니다."
+      : dashboard.repository?.connectionStatus === "inaccessible"
+        ? "접근 권한이 없는 저장소는 분석을 시작할 수 없습니다."
+        : dashboard.repository?.connectionStatus === "disconnected"
+          ? "GitHub 연결이 없어 실제 분석을 시작할 수 없습니다. mock 저장소만 등록된 상태입니다."
+          : dashboard.activeJob
+            ? "이미 분석 작업이 진행 중입니다."
+            : null;
 
   return (
     <div className="space-y-8">
       <ProjectStatusBanner dashboard={dashboard} />
+
+      {dashboard.invalidSnapshotRequested ? (
+        <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm">
+          이 프로젝트의 분석 기록이 아닙니다. 마지막 정상 스냅샷으로 표시합니다.
+        </p>
+      ) : null}
 
       <section className="rounded-lg border border-border bg-surface p-4">
         <h2 className="text-base font-semibold">저장소와 브랜치</h2>

@@ -38,6 +38,27 @@ function iso(value: string): string {
   return new Date(value).toISOString();
 }
 
+function mockRepositoryMeta(owner: string, name: string) {
+  return {
+    fullName: `${owner}/${name}`,
+    isArchived: false,
+    isDisabled: false,
+    permissions: {},
+    githubPushedAt: null,
+    lastSyncedAt: null,
+  };
+}
+
+function mockJobMeta(repositoryId: string | null) {
+  return {
+    repositoryId,
+    triggerType: "mock" as const,
+    triggerRef: null,
+    triggerSha: null,
+    githubDeliveryId: null,
+  };
+}
+
 export function createEmptyStoreData(): StoreData {
   return {
     profiles: [],
@@ -74,6 +95,11 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       defaultBranch: "main",
       headSha: COMMIT_SHAS.a,
       connectionStatus: "connected",
+      githubInstallationId: null,
+      githubRepositoryId: null,
+      htmlUrl: null,
+      isPrivate: null,
+      ...mockRepositoryMeta("demo-user", "portfolio-blog"),
       createdAt: iso("2026-08-10T10:00:00+09:00"),
       updatedAt: now,
     },
@@ -87,6 +113,11 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       defaultBranch: "main",
       headSha: COMMIT_SHAS.bLatest,
       connectionStatus: "connected",
+      githubInstallationId: null,
+      githubRepositoryId: null,
+      htmlUrl: null,
+      isPrivate: null,
+      ...mockRepositoryMeta("demo-user", "team-dashboard"),
       createdAt: iso("2026-08-12T10:00:00+09:00"),
       updatedAt: now,
     },
@@ -100,6 +131,11 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       defaultBranch: "main",
       headSha: COMMIT_SHAS.cFailed,
       connectionStatus: "connected",
+      githubInstallationId: null,
+      githubRepositoryId: null,
+      htmlUrl: null,
+      isPrivate: null,
+      ...mockRepositoryMeta("demo-user", "shop-mvp"),
       createdAt: iso("2026-08-14T10:00:00+09:00"),
       updatedAt: now,
     },
@@ -113,6 +149,11 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       defaultBranch: "main",
       headSha: COMMIT_SHAS.d,
       connectionStatus: "connected",
+      githubInstallationId: null,
+      githubRepositoryId: null,
+      htmlUrl: null,
+      isPrivate: null,
+      ...mockRepositoryMeta("demo-user", "learning-notes"),
       createdAt: iso("2026-08-16T10:00:00+09:00"),
       updatedAt: now,
     },
@@ -126,6 +167,11 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       defaultBranch: "main",
       headSha: COMMIT_SHAS.e,
       connectionStatus: "connected",
+      githubInstallationId: null,
+      githubRepositoryId: null,
+      htmlUrl: null,
+      isPrivate: null,
+      ...mockRepositoryMeta("demo-user", "archived-landing"),
       createdAt: iso("2026-08-05T10:00:00+09:00"),
       updatedAt: iso("2026-08-20T10:00:00+09:00"),
     },
@@ -350,6 +396,7 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       status: "completed",
       errorCode: null,
       errorMessage: null,
+      ...mockJobMeta(REPOSITORY_IDS.a),
       createdAt: iso("2026-08-30T20:40:00+09:00"),
       startedAt: iso("2026-08-30T20:41:00+09:00"),
       completedAt: iso("2026-08-30T21:00:00+09:00"),
@@ -364,6 +411,7 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       status: "completed",
       errorCode: null,
       errorMessage: null,
+      ...mockJobMeta(REPOSITORY_IDS.b),
       createdAt: iso("2026-08-28T19:20:00+09:00"),
       startedAt: iso("2026-08-28T19:21:00+09:00"),
       completedAt: iso("2026-08-28T20:00:00+09:00"),
@@ -379,6 +427,7 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       errorCode: "WORKER_NOT_CONNECTED",
       errorMessage:
         "분석 워커가 연결되어 있지 않아 최신 커밋 분석이 실패했습니다. 이전 정상 결과는 그대로입니다.",
+      ...mockJobMeta(REPOSITORY_IDS.c),
       createdAt: iso("2026-08-30T22:00:00+09:00"),
       startedAt: iso("2026-08-30T22:01:00+09:00"),
       completedAt: iso("2026-08-30T22:08:00+09:00"),
@@ -393,6 +442,7 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       status: "running",
       errorCode: null,
       errorMessage: null,
+      ...mockJobMeta(REPOSITORY_IDS.d),
       createdAt: iso("2026-08-31T08:00:00+09:00"),
       startedAt: iso("2026-08-31T08:01:00+09:00"),
       completedAt: null,
@@ -407,6 +457,7 @@ export function createDemoStoreData(userId = DEMO_USER_ID): StoreData {
       status: "completed",
       errorCode: null,
       errorMessage: null,
+      ...mockJobMeta(REPOSITORY_IDS.e),
       createdAt: iso("2026-08-18T15:40:00+09:00"),
       startedAt: iso("2026-08-18T15:41:00+09:00"),
       completedAt: iso("2026-08-18T16:00:00+09:00"),

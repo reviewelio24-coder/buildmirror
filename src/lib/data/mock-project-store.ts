@@ -2,8 +2,13 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { AppError } from "@/lib/errors";
+import { getMockGitHubStore } from "@/lib/data/mock-github-store";
 import { createDemoStoreData, createEmptyStoreData, type StoreData } from "@/lib/mock/seed";
 import { deriveProjectStatus } from "@/lib/projects/status";
+import {
+  prepareViewStateInput,
+  viewStateUnchanged,
+} from "@/lib/projects/view-state";
 import type {
   AnalysisJob,
   AnalysisJobType,
@@ -12,6 +17,7 @@ import type {
   ProjectDashboard,
   ProjectSummary,
   ProjectViewState,
+  Repository,
 } from "@/lib/types/domain";
 import type {
   FreshnessUpdate,
@@ -131,6 +137,7 @@ export class MockProjectStore implements ProjectStore {
     const requested = snapshotId
       ? projectSnapshots.find((item) => item.id === snapshotId) ?? null
       : null;
+    const invalidSnapshotRequested = Boolean(snapshotId) && !requested;
     const displayedSnapshot = requested ?? lastSuccessfulSnapshot;
     const scores =
       this.data.scores.find(
@@ -167,6 +174,7 @@ export class MockProjectStore implements ProjectStore {
       latestFailedJob,
       notifications,
       viewState,
+      invalidSnapshotRequested,
     };
   }
 
@@ -187,6 +195,16 @@ export class MockProjectStore implements ProjectStore {
       defaultBranch: input.defaultBranch,
       headSha: null,
       connectionStatus: "disconnected",
+      githubInstallationId: null,
+      githubRepositoryId: null,
+      htmlUrl: null,
+      isPrivate: null,
+      fullName: `${input.repositoryOwner}/${input.repositoryName}`,
+      isArchived: false,
+      isDisabled: false,
+      permissions: {},
+      githubPushedAt: null,
+      lastSyncedAt: null,
       createdAt: now,
       updatedAt: now,
     });
@@ -315,14 +333,24 @@ export class MockProjectStore implements ProjectStore {
     input: ViewStateInput,
   ): Promise<ProjectViewState> {
     this.ownedProject(userId, projectId);
+    const sanitized = prepareViewStateInput(
+      projectId,
+      input,
+      this.data.snapshots
+        .filter((item) => item.projectId === projectId)
+        .map((item) => item.id),
+    );
     const now = new Date().toISOString();
     const current = this.data.viewStates.find(
       (item) => item.userId === userId && item.projectId === projectId,
     );
     if (current) {
-      current.route = input.route;
-      current.snapshotId = input.snapshotId;
-      current.filters = input.filters;
+      if (viewStateUnchanged(current, sanitized)) {
+        return current;
+      }
+      current.route = sanitized.route;
+      current.snapshotId = sanitized.snapshotId;
+      current.filters = sanitized.filters;
       current.updatedAt = now;
       await this.save();
       return current;
@@ -330,9 +358,9 @@ export class MockProjectStore implements ProjectStore {
     const created: ProjectViewState = {
       userId,
       projectId,
-      route: input.route,
-      snapshotId: input.snapshotId,
-      filters: input.filters,
+      route: sanitized.route,
+      snapshotId: sanitized.snapshotId,
+      filters: sanitized.filters,
       updatedAt: now,
     };
     this.data.viewStates.push(created);
@@ -358,18 +386,27 @@ export class MockProjectStore implements ProjectStore {
     input: FreshnessUpdate,
   ): Promise<Project> {
     const project = this.ownedProject(userId, projectId);
+    const repository = project.activeRepositoryId
+      ? this.data.repositories.find(
+          (item) => item.id === project.activeRepositoryId,
+        )
+      : undefined;
+    const repositoryUnchanged =
+      !input.repositoryHeadSha || repository?.headSha === input.repositoryHeadSha;
+    if (
+      project.latestKnownCommitSha === input.latestKnownCommitSha &&
+      project.status === input.status &&
+      repositoryUnchanged
+    ) {
+      return project;
+    }
     project.latestKnownCommitSha = input.latestKnownCommitSha;
     project.latestKnownAt = input.latestKnownAt;
     project.status = input.status;
     project.updatedAt = new Date().toISOString();
-    if (input.repositoryHeadSha && project.activeRepositoryId) {
-      const repository = this.data.repositories.find(
-        (item) => item.id === project.activeRepositoryId,
-      );
-      if (repository) {
-        repository.headSha = input.repositoryHeadSha;
-        repository.updatedAt = project.updatedAt;
-      }
+    if (input.repositoryHeadSha && repository) {
+      repository.headSha = input.repositoryHeadSha;
+      repository.updatedAt = project.updatedAt;
     }
     await this.save();
     return project;
@@ -393,6 +430,11 @@ export class MockProjectStore implements ProjectStore {
       errorCode: "MOCK_WORKER",
       errorMessage:
         "이 작업은 mock입니다. 실제 분석 워커는 연결되어 있지 않습니다.",
+      repositoryId: project.activeRepositoryId,
+      triggerType: "mock",
+      triggerRef: null,
+      triggerSha: null,
+      githubDeliveryId: null,
       createdAt: now,
       startedAt: now,
       completedAt: null,
@@ -412,6 +454,112 @@ export class MockProjectStore implements ProjectStore {
     });
     await this.save();
     return job;
+  }
+
+  async linkPrimaryRepository(
+    userId: string,
+    projectId: string,
+    repository: Repository,
+  ): Promise<Project> {
+    const project = this.ownedProject(userId, projectId);
+    if (repository.userId !== userId) {
+      throw new AppError({
+        userMessage: "다른 계정의 저장소는 연결할 수 없습니다.",
+        developerCause: "repository user does not match current user",
+        code: "GITHUB_REPOSITORY_USER_MISMATCH",
+        status: 403,
+      });
+    }
+    const now = new Date().toISOString();
+    const existingById = this.data.repositories.find(
+      (item) => item.id === repository.id,
+    );
+    const existingByGithub =
+      repository.githubRepositoryId === null
+        ? undefined
+        : this.data.repositories.find(
+            (item) =>
+              item.userId === userId &&
+              item.githubRepositoryId === repository.githubRepositoryId,
+          );
+    const stored = existingById ?? existingByGithub;
+    if (stored) {
+      stored.provider = repository.provider;
+      stored.providerId = repository.providerId;
+      stored.owner = repository.owner;
+      stored.name = repository.name;
+      stored.defaultBranch = repository.defaultBranch;
+      stored.headSha = repository.headSha;
+      stored.connectionStatus = repository.connectionStatus;
+      stored.githubInstallationId = repository.githubInstallationId;
+      stored.githubRepositoryId = repository.githubRepositoryId;
+      stored.htmlUrl = repository.htmlUrl;
+      stored.isPrivate = repository.isPrivate;
+      stored.fullName = repository.fullName;
+      stored.isArchived = repository.isArchived;
+      stored.isDisabled = repository.isDisabled;
+      stored.permissions = repository.permissions;
+      stored.githubPushedAt = repository.githubPushedAt;
+      stored.lastSyncedAt = repository.lastSyncedAt;
+      stored.updatedAt = now;
+    } else {
+      this.data.repositories.push({ ...repository, updatedAt: now });
+    }
+    const repositoryId = stored?.id ?? repository.id;
+
+    for (const link of this.data.projectRepositories) {
+      if (
+        link.projectId === projectId &&
+        link.unlinkedAt === null &&
+        link.repositoryId !== repositoryId
+      ) {
+        link.unlinkedAt = now;
+      }
+    }
+    const existingLink = this.data.projectRepositories.find(
+      (link) =>
+        link.projectId === projectId && link.repositoryId === repositoryId,
+    );
+    if (existingLink) {
+      existingLink.unlinkedAt = null;
+      existingLink.role = "primary";
+    } else {
+      this.data.projectRepositories.push({
+        projectId,
+        repositoryId,
+        role: "primary",
+        linkedAt: now,
+        unlinkedAt: null,
+      });
+    }
+
+    project.activeRepositoryId = repositoryId;
+    project.analysisBranch = (stored ?? repository).defaultBranch;
+    project.updatedAt = now;
+    await this.save();
+    return project;
+  }
+
+  async unlinkPrimaryRepository(
+    userId: string,
+    projectId: string,
+  ): Promise<Project> {
+    const project = this.ownedProject(userId, projectId);
+    const now = new Date().toISOString();
+    for (const link of this.data.projectRepositories) {
+      if (link.projectId === projectId && link.unlinkedAt === null) {
+        link.unlinkedAt = now;
+      }
+    }
+    project.activeRepositoryId = null;
+    project.status = "disconnected";
+    project.updatedAt = now;
+    await this.save();
+    return project;
+  }
+
+  memoryData(): StoreData {
+    return this.data;
   }
 
   private toSummary(project: Project): ProjectSummary {
@@ -444,10 +592,25 @@ async function loadPersistedData(): Promise<StoreData> {
     if (!parsed.projects?.length) {
       return createDemoStoreData();
     }
-    return parsed;
+    return normalizeStoreData(parsed);
   } catch {
     return createDemoStoreData();
   }
+}
+
+function normalizeStoreData(data: StoreData): StoreData {
+  return {
+    ...data,
+    repositories: data.repositories.map((item) => ({
+      ...item,
+      fullName: item.fullName ?? `${item.owner}/${item.name}`,
+      isArchived: item.isArchived ?? false,
+      isDisabled: item.isDisabled ?? false,
+      permissions: item.permissions ?? {},
+      githubPushedAt: item.githubPushedAt ?? null,
+      lastSyncedAt: item.lastSyncedAt ?? null,
+    })),
+  };
 }
 
 async function persistData(data: StoreData): Promise<void> {
@@ -460,6 +623,7 @@ export async function getMockProjectStore(): Promise<MockProjectStore> {
   if (!globalStore.__buildMirrorMockStore) {
     const data = cloneData(await loadPersistedData());
     globalStore.__buildMirrorMockStore = new MockProjectStore(data, persistData);
+    getMockGitHubStore().useSharedRepositories(data.repositories);
   }
   return globalStore.__buildMirrorMockStore;
 }

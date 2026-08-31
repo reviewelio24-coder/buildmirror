@@ -10,7 +10,6 @@ export async function loadProjectDashboard(
 ): Promise<ProjectDashboard> {
   const store = await getProjectStore();
   const initial = await store.getDashboard(userId, projectId, snapshotId);
-  await store.markProjectOpened(userId, projectId);
 
   const repository = initial.repository;
   if (
@@ -18,9 +17,10 @@ export async function loadProjectDashboard(
     !shouldCheckFreshness({
       archivedAt: initial.project.archivedAt,
       connectionStatus: repository.connectionStatus,
+      provider: repository.provider,
     })
   ) {
-    return store.getDashboard(userId, projectId, snapshotId);
+    return initial;
   }
 
   const checkedAt = new Date().toISOString();
